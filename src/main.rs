@@ -1,3 +1,5 @@
+use crate::numerical_rank::NumericalRank;
+
 fn main() {
   println!("Hello, world!");
 }
@@ -40,7 +42,7 @@ enum Face {
 #[derive(Debug, Clone)]
 struct CardData {
   suit: Suit,
-  rank: numerical_rank::NumericalRank,
+  rank: NumericalRank,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +51,7 @@ enum Card {
   Joker,
 }
 
+#[derive(Debug, PartialEq)]
 enum OrderError {
   Suit,
   Rank,
@@ -60,6 +63,14 @@ enum Direction {
 }
 
 impl Card {
+  fn new(suit: Suit, rank: u8) -> Option<Self> {
+    NumericalRank::new(rank).map(|rank| Card::Card(CardData { suit, rank }))
+  }
+
+  fn new_joker() -> Self {
+    Card::Joker
+  }
+
   fn check_neighbour(&self, card: &Card, direction: &Direction) -> Result<(), OrderError> {
     self.check_suit(card)?;
     self.check_order(card, direction)?;
@@ -172,12 +183,23 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_check_suit_ok() {
-    let ace_hearts = Card::Card(CardData {
-      suit: Suit::Hearts,
-      rank: numerical_rank::NumericalRank::new(1).unwrap(),
-    });
+  fn check_suit_ok() {
+    let ace_hearts = Card::new(Suit::Hearts, 1).unwrap();
+    let two_hearts = Card::new(Suit::Hearts, 2).unwrap();
+    let joker = Card::new_joker();
 
-    todo!()
+    assert_eq!(ace_hearts.check_suit(&two_hearts), Ok(()));
+    assert_eq!(ace_hearts.check_suit(&joker), Ok(()));
   }
+
+  #[test]
+  fn check_suit_error() {
+    let ace_hearts = Card::new(Suit::Hearts, 1).unwrap();
+    let two_spades = Card::new(Suit::Spades, 2).unwrap();
+
+    assert_eq!(ace_hearts.check_suit(&two_spades), Err(OrderError::Suit));
+  }
+
+  // #[test]
+  // fn check
 }
