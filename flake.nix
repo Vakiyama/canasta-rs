@@ -24,6 +24,7 @@
                   clippy
                   rust-analyzer
                   rustfmt
+                  bacon
                 ];
 
 
