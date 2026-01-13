@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use rand::{rng, seq::SliceRandom, thread_rng};
+
 use crate::numerical_rank::NumericalRank;
 
 fn main() {
@@ -12,12 +16,19 @@ enum Suit {
   Diamonds,
 }
 
+#[derive(Debug)]
+enum Face {
+  Jack,
+  Queen,
+  King,
+}
+
 mod numerical_rank {
   #[derive(Debug, PartialEq, Eq, Clone, Copy)]
   pub struct NumericalRank(u8);
 
   impl NumericalRank {
-    pub fn new(number: u8) -> Option<NumericalRank> {
+    pub fn new(number: u8) -> Option<Self> {
       match number {
         1..=13 => Some(NumericalRank(number)),
         _ => None,
@@ -32,20 +43,13 @@ mod numerical_rank {
   }
 }
 
-#[derive(Debug)]
-enum Face {
-  Jack,
-  Queen,
-  King,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct CardData {
   suit: Suit,
   rank: NumericalRank,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum Card {
   Card(CardData),
   Joker,
@@ -67,13 +71,30 @@ impl Card {
     NumericalRank::new(rank).map(|rank| Card::Card(CardData { suit, rank }))
   }
 
+  pub fn new_face(suit: Suit, face: Face) -> Self {
+    let rank = match face {
+      Face::Jack => NumericalRank::new(11).unwrap(),
+      Face::Queen => NumericalRank::new(12).unwrap(),
+      Face::King => NumericalRank::new(13).unwrap(),
+    };
+
+    Card::Card(CardData { suit, rank })
+  }
+
+  pub fn new_ace(suit: Suit) -> Self {
+    Card::Card(CardData {
+      suit,
+      rank: NumericalRank::new(1).unwrap(),
+    })
+  }
+
   fn new_joker() -> Self {
     Card::Joker
   }
 
   fn check_neighbour(&self, card: &Card, direction: &Direction) -> Result<(), OrderError> {
     self.check_suit(card)?;
-    self.check_order(card, direction)?;
+    self.check_rank(card, direction)?;
     Ok(())
   }
 
@@ -92,7 +113,7 @@ impl Card {
     }
   }
 
-  fn check_order(&self, card: &Card, direction: &Direction) -> Result<(), OrderError> {
+  fn check_rank(&self, card: &Card, direction: &Direction) -> Result<(), OrderError> {
     // subtract self from card
     // desired size is 1 or 13 if Decreasing, -1 or -13 if increasing
 
@@ -112,15 +133,14 @@ impl Card {
   }
 }
 
-struct Hand(Vec<Card>);
-
-// sets have some critical invariants;
+// melds have some critical invariants;
 // they must be min 3 long
 // they must be ordered and of the same suit (except for 2* as they are small jokers)
 // they are ranged from ace - 2 - .. - king - ace
-#[derive(Debug)]
-struct Set(Vec<Card>);
+#[derive(Debug, PartialEq)]
+struct Meld(Vec<Card>);
 
+#[derive(Debug, PartialEq)]
 enum SetError {
   Size(usize),
   Order(OrderError),
@@ -132,8 +152,8 @@ impl From<OrderError> for SetError {
   }
 }
 
-impl Set {
-  pub fn new(mut initial: Vec<Card>) -> Result<Set, SetError> {
+impl Meld {
+  pub fn new(mut initial: Vec<Card>) -> Result<Meld, SetError> {
     let len = initial.len();
 
     if len < 3 {
@@ -154,7 +174,7 @@ impl Set {
     check_neighbours(middle_card, first_half, &Direction::Decreasing)?;
     check_neighbours(middle_card, second_half, &Direction::Increasing)?;
 
-    Ok(Set(initial))
+    Ok(Meld(initial))
   }
 }
 
@@ -172,10 +192,69 @@ fn check_neighbours(
   }
 }
 
-struct Player {}
+// game consists of 2 teams
+// each team has 1..=3 players
+// the team has a played set of cards
+// each player has their own hand and a flag for having picked up the refill
+// the game has the main deck,
+// 0..=2 refills,
+// the table deck
+
+struct Player {
+  refill_used: bool,
+  hand: Cards,
+}
+
+struct Team {
+  players: Arc<[Player]>,
+  melds: Arc<[Meld]>,
+}
+
+struct Cards(Vec<Card>);
+
+impl Cards {
+  fn shuffle(&mut self) {
+    let mut rng = rng();
+    self.0.shuffle(&mut rng);
+  }
+
+  fn pick_n(&mut self) -> Cards {
+    todo!()
+  }
+}
 
 struct Game {
-  players: (Player, Player),
+  teams: Arc<[Team]>,
+  refills: (Option<Cards>, Option<Cards>),
+  deck: Cards,
+  table: Cards,
+}
+
+enum PlayerCount {
+  Two,
+  Three,
+  Four,
+  Six,
+}
+
+impl Game {
+  pub fn new(player_count: PlayerCount) -> Self {
+    let deck = Cards(new_deck().into_iter().chain(new_deck()).collect());
+
+    match player_count {
+      PlayerCount::Two => todo!(),
+      PlayerCount::Three => todo!(),
+      PlayerCount::Four => todo!(),
+      PlayerCount::Six => todo!(),
+    }
+  }
+}
+
+fn new_deck() -> Vec<Card> {
+  vec![Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs]
+    .iter()
+    .flat_map(|suit| { 0..=13 }.map(|rank| Card::new(suit.clone(), rank).unwrap()))
+    .collect()
 }
 
 #[cfg(test)]
@@ -200,6 +279,110 @@ mod tests {
     assert_eq!(ace_hearts.check_suit(&two_spades), Err(OrderError::Suit));
   }
 
-  // #[test]
-  // fn check
+  #[test]
+  fn check_rank_ok() {
+    let ace_hearts = Card::new(Suit::Hearts, 1).unwrap();
+    let two_spades = Card::new(Suit::Spades, 2).unwrap();
+
+    assert_eq!(
+      ace_hearts.check_rank(&two_spades, &Direction::Increasing),
+      Ok(())
+    );
+
+    let three_spades = Card::new(Suit::Spades, 3).unwrap();
+
+    assert_eq!(
+      two_spades.check_rank(&three_spades, &Direction::Increasing),
+      Ok(())
+    );
+
+    let king_spades = Card::new_face(Suit::Spades, Face::King);
+
+    assert_eq!(
+      king_spades.check_rank(&ace_hearts, &Direction::Increasing),
+      Ok(())
+    );
+  }
+
+  #[test]
+  fn check_rank_error() {
+    let ace_hearts = Card::new(Suit::Hearts, 1).unwrap();
+    let two_spades = Card::new(Suit::Spades, 2).unwrap();
+
+    assert_eq!(
+      ace_hearts.check_rank(&two_spades, &Direction::Decreasing),
+      Err(OrderError::Rank)
+    );
+
+    let three_spades = Card::new(Suit::Spades, 3).unwrap();
+
+    assert_eq!(
+      ace_hearts.check_rank(&three_spades, &Direction::Increasing),
+      Err(OrderError::Rank)
+    );
+
+    let king_spades = Card::new_face(Suit::Spades, Face::King);
+
+    assert_eq!(
+      ace_hearts.check_rank(&king_spades, &Direction::Increasing),
+      Err(OrderError::Rank)
+    );
+  }
+
+  // check recursive set validation
+  #[test]
+  fn check_set_ok() {
+    let ace_spades = Card::new(Suit::Spades, 1).unwrap();
+    let two_spades = Card::new(Suit::Spades, 2).unwrap();
+    let three_spades = Card::new(Suit::Spades, 3).unwrap();
+
+    let set_vec = vec![ace_spades, two_spades, three_spades];
+    let set_vec_copy = set_vec.to_owned();
+
+    assert_eq!(Meld::new(set_vec), Ok(Meld(set_vec_copy)));
+
+    let mut full_set: Vec<_> = { 1..=13 }
+      .inspect(|&num| {
+        println!("{}", num);
+      })
+      .map(|num| Card::new(Suit::Diamonds, num).unwrap())
+      .collect();
+
+    full_set.push(Card::new_ace(Suit::Diamonds));
+
+    assert!(Meld::new(full_set.to_owned()).is_ok());
+
+    full_set.push(Card::new_ace(Suit::Diamonds));
+
+    assert_eq!(Meld::new(full_set), Err(SetError::Order(OrderError::Rank)));
+  }
+
+  #[test]
+  fn check_set_rank_err() {
+    let ace_spades = Card::new(Suit::Spades, 1).unwrap();
+    let two_spades = Card::new(Suit::Spades, 2).unwrap();
+
+    assert_eq!(
+      Meld::new(vec![ace_spades.to_owned(), two_spades.to_owned()]),
+      Err(SetError::Size(2))
+    );
+
+    assert_eq!(
+      Meld::new(vec![
+        ace_spades.to_owned(),
+        two_spades.to_owned(),
+        ace_spades.to_owned()
+      ]),
+      Err(SetError::Order(OrderError::Rank))
+    );
+
+    assert_eq!(
+      Meld::new(vec![
+        two_spades.to_owned(),
+        two_spades.to_owned(),
+        two_spades.to_owned()
+      ]),
+      Err(SetError::Order(OrderError::Rank))
+    );
+  }
 }
