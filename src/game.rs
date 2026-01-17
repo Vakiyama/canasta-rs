@@ -52,7 +52,7 @@ struct CardData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum Card {
+pub enum Card {
   Card(CardData),
   Joker,
 }
@@ -141,7 +141,7 @@ impl Card {
 // they must be ordered and of the same suit (except for 2* as they are small jokers)
 // they are ranged from ace - 2 - .. - king - ace
 #[derive(Debug, PartialEq)]
-struct Meld(Vec<Card>);
+pub struct Meld(Vec<Card>);
 
 #[derive(Debug, PartialEq)]
 enum SetError {
@@ -156,28 +156,53 @@ impl From<OrderError> for SetError {
 }
 
 impl Meld {
-  pub fn new(mut initial: Vec<Card>) -> Result<Meld, SetError> {
+  pub fn new(initial: Vec<Card>) -> Result<Meld, SetError> {
     let len = initial.len();
 
     if len < 3 {
       return Err(SetError::Size(len));
     };
 
+    Meld(initial).validate()
+  }
+
+  fn validate(self: Meld) -> Result<Meld, SetError> {
+    let mut cards = self.0.clone();
+
+    let len = cards.len();
     // choose middle card, check_neighbours in both dirs
     let middle_index = len / 2;
-    let middle_card = &initial[middle_index].to_owned();
+    let middle_card = &cards[middle_index].to_owned();
 
-    let initial_copy: &Vec<Card> = &initial.to_owned();
+    let initial_copy: &Vec<Card> = &cards.to_owned();
 
     let second_half = &initial_copy[middle_index + 1..];
-    let first_half: &mut [Card] = &mut initial[..middle_index];
+    let first_half: &mut [Card] = &mut cards[..middle_index];
 
     first_half.reverse();
 
     check_neighbours(middle_card, first_half, &Direction::Decreasing)?;
     check_neighbours(middle_card, second_half, &Direction::Increasing)?;
 
-    Ok(Meld(initial))
+    Ok(self)
+  }
+
+  // to add to a meld, we can give a set of cards and a direction to attach to
+  fn add(self, cards: Cards, direction: &Direction) -> Result<Meld, SetError> {
+    match direction {
+      Direction::Increasing => {
+        let mut inner = self.0;
+        inner.extend(cards.0);
+
+        Meld(inner).validate()
+      }
+      Direction::Decreasing => {
+        let mut new_cards = cards.0;
+        new_cards.extend(self.0);
+
+        Meld(new_cards).validate()
+      }
+    }
   }
 }
 
@@ -204,7 +229,7 @@ fn check_neighbours(
 // the table deck
 
 #[derive(Debug)]
-struct Player {
+pub struct Player {
   refill_used: bool,
   hand: Cards,
 }
@@ -255,6 +280,12 @@ pub struct Game {
   refills: (Option<Cards>, Option<Cards>),
   deck: Cards,
   table: Cards,
+  turn: u8,
+}
+
+pub enum GameState {
+  Active(Game),
+  Over { winner: Player },
 }
 
 pub enum PlayerCount {
@@ -285,6 +316,7 @@ impl Game {
       refills: (Some(deck.draw_n(HAND_SIZE)), Some(deck.draw_n(HAND_SIZE))),
       deck,
       table: Cards(vec![]),
+      turn: 0,
     }
   }
 }
@@ -376,7 +408,7 @@ mod tests {
 
   // check recursive set validation
   #[test]
-  fn check_set_ok() {
+  fn check_meld_ok() {
     let ace_spades = Card::new(Suit::Spades, 1).unwrap();
     let two_spades = Card::new(Suit::Spades, 2).unwrap();
     let three_spades = Card::new(Suit::Spades, 3).unwrap();
@@ -403,7 +435,7 @@ mod tests {
   }
 
   #[test]
-  fn check_set_rank_err() {
+  fn check_meld_rank_err() {
     let ace_spades = Card::new(Suit::Spades, 1).unwrap();
     let two_spades = Card::new(Suit::Spades, 2).unwrap();
 

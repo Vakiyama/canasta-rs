@@ -1,4 +1,5 @@
 mod game;
+mod moves;
 
 use crate::game::Game;
 
